@@ -7,7 +7,7 @@ param(
     [ValidateSet('My')]
     [string]$StoreName = 'My',
     [string]$ServiceAccount = '',
-    [int]$Days = 365,
+    [int]$Days = 7,
     [string]$FriendlyName = 'OnPrem-CSharp-WebApp Client Certificate',
     [string]$AppId = '',
     [string]$TenantId = ''

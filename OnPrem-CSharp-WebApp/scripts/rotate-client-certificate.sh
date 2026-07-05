@@ -19,7 +19,7 @@ APP_ID="${APP_ID:-}"
 TENANT_ID="${TENANT_ID:-}"
 APP_NAME="${APP_NAME:-OnPrem-CSharp-WebApp}"
 DISPLAY_NAME="${DISPLAY_NAME:-$APP_NAME-$(date +%Y%m%d%H%M%S)}"
-DAYS="${DAYS:-365}"
+DAYS="${DAYS:-7}"
 
 mkdir -p "$CERT_DIR" "$ARCHIVE_DIR"
 
