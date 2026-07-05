@@ -96,12 +96,11 @@ The core concepts are:
 
 ### 2. Grant Key Vault access
 - Open the target Key Vault.
-- Assign the Key Vault Secrets User role or create an access policy that grants Get and List secret permissions to the application registration.
+- Assign the ***Key Vault Secrets User*** role or create an access policy that grants Get and List secret permissions to the application registration.
 - The application registration becomes the identity used by the web application when it connects to Key Vault.
-- Two Accounts/Roles are needed, both Azure Registered Applications:
+- Two Accounts/Roles suld be used, both should be Azure Registered Applications:
   - **Key Vault Secrets Officer**:  Manages secret creation and deletion. Used by the automated deployment account for Continuous Deployment (CD).
-  - **Key Vault Secrets User**: Reads secrets. Used by application accounts.
-
+  - **Key Vault Secrets User**: Reads secrets. Used by application accounts.  Application should not modify the secrets.
 
 ![App Registration 01](/images/2.01-Assign%20Roles-Key_Vault_Secrect_Officer.png)
 ![App Registration 01](/images/2.02-Assign%20Roles-Key_Vault_Secrect_Officer.png)

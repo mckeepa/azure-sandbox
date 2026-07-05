@@ -6,6 +6,12 @@
 *.user
 *.sln.docstates
 
+
+#PKI Certificate and keys
+*.crt
+*.cer
+*.pem
+
 # Build results
 
 [Dd]ebug/
@@ -17,8 +23,7 @@ x64/
 # MSTest test Results
 [Tt]est[Rr]esult*/
 [Bb]uild[Ll]og.*
-*.crt
-*.pem
+
 *_i.c
 *_p.c
 *_i.h
@@ -133,3 +138,6 @@ $RECYCLE.BIN/
 
 _NCrunch*
 certs/private.pem
+OnPrem-CSharp-WebApp/certs/private.pem
+OnPrem-CSharp-WebApp/certs/public.crt
+OnPrem-CSharp-WebApp/certs/private.pem

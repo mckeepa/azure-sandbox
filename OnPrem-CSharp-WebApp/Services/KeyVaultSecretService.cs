@@ -66,14 +66,23 @@ public sealed class KeyVaultSecretService
         var credential = new ClientCertificateCredential(_settings.TenantId!, _settings.ClientId!, certificate);
         var secretClient = new SecretClient(new Uri(_settings.VaultUri!), credential);
 
-        var secrets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string secretName in SecretNames)
+        try
         {
-            KeyVaultSecret secret = await secretClient.GetSecretAsync(secretName);
-            secrets[secretName] = secret.Value;
-        }
+            var secrets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string secretName in SecretNames)
+            {
+                KeyVaultSecret secret = await secretClient.GetSecretAsync(secretName);
+                secrets[secretName] = secret.Value;
+            }
 
-        return secrets;
+            return secrets;
+        }
+        catch (Exception ex) when (IsCertificateAuthenticationFailure(ex))
+        {
+            throw new InvalidOperationException(
+                "Azure Entra rejected the client certificate. Upload the public certificate to the Microsoft Entra application registration and confirm that the private key matches the uploaded certificate.",
+                ex);
+        }
     }
 
     private string? ValidateConfiguration()
@@ -126,14 +135,21 @@ public sealed class KeyVaultSecretService
             return null;
         }
 
+        // The configuration may contain either an absolute path or a relative path.
+        // A relative path is resolved against several common deployment locations so the sample
+        // works when the certificate is copied next to the app, placed in a certs folder, or
+        // published into the runtime output directory.
         var candidates = new List<string>();
 
         if (Path.IsPathRooted(pemFilePath))
         {
+            // Absolute paths are used as-is because they already describe the exact location.
             candidates.Add(pemFilePath);
         }
         else
         {
+            // The candidates list provides a fallback chain for common deployment layouts.
+            // This keeps the example robust without forcing every environment to use the same folder structure.
             candidates.Add(Path.GetFullPath(Path.Combine(contentRootPath, pemFilePath)));
             candidates.Add(Path.GetFullPath(Path.Combine(contentRootPath, "certs", Path.GetFileName(pemFilePath))));
             candidates.Add(Path.GetFullPath(Path.Combine(contentRootPath, "..", "certs", Path.GetFileName(pemFilePath))));
@@ -145,6 +161,14 @@ public sealed class KeyVaultSecretService
             .Where(candidate => !string.IsNullOrWhiteSpace(candidate))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault(File.Exists);
+    }
+
+    private static bool IsCertificateAuthenticationFailure(Exception ex)
+    {
+        string message = ex.ToString();
+        return message.Contains("AADSTS700027", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("certificate with identifier used to sign the client assertion", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("invalid_client", StringComparison.OrdinalIgnoreCase);
     }
 
     private X509Certificate2? LoadCertificateFromWindowsStore()
