@@ -3,6 +3,7 @@
 ## Quick start
 - Build the sample app: dotnet build OnPrem-CSharp-WebApp/OnPrem-CSharp-WebApp.csproj
 - Run the sample app: dotnet run --project OnPrem-CSharp-WebApp/OnPrem-CSharp-WebApp.csproj
+- Ensure the local machine has the .NET 10 SDK installed before building or running the sample
 - Configure Azure Key Vault settings in the appsettings files or environment variables
 - Choose a certificate source:
   - file-based mode for Linux or cross-platform deployments
@@ -41,13 +42,12 @@ OnPrem-CSharp-WebApp/
     └── launchSettings.json
 ```
 
-- [OnPrem-CSharp-WebApp/Program.cs](OnPrem-CSharp-WebApp/Program.cs) - application startup, configuration loading, and HTTP endpoint registration
-- [OnPrem-CSharp-WebApp/Services/KeyVaultSecretService.cs](OnPrem-CSharp-WebApp/Services/KeyVaultSecretService.cs) - certificate loading and Key Vault secret retrieval
-- [OnPrem-CSharp-WebApp/Configuration/KeyVaultOptions.cs](OnPrem-CSharp-WebApp/Configuration/KeyVaultOptions.cs) - strongly typed settings for Key Vault and certificate selection
-- [OnPrem-CSharp-WebApp/appsettings.json](OnPrem-CSharp-WebApp/appsettings.json) - default configuration values
-- [OnPrem-CSharp-WebApp/appsettings.Development.json](OnPrem-CSharp-WebApp/appsettings.Development.json), [OnPrem-CSharp-WebApp/appsettings.Test.json](OnPrem-CSharp-WebApp/appsettings.Test.json), and [OnPrem-CSharp-WebApp/appsettings.Production.json](OnPrem-CSharp-WebApp/appsettings.Production.json) - environment-specific overrides
-- [OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.sh](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.sh) - Linux certificate rotation helper
-- [OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.ps1](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.ps1) - Windows certificate rotation helper
+- [Program.cs](OnPrem-CSharp-WebApp/Program.cs) - application startup, configuration loading, and HTTP endpoint registration
+- [KeyVaultSecretService.cs](OnPrem-CSharp-WebApp/Services/KeyVaultSecretService.cs) - certificate loading and Key Vault secret retrieval
+- [KeyVaultOptions.cs](OnPrem-CSharp-WebApp/Configuration/KeyVaultOptions.cs) - strongly typed settings for Key Vault and certificate selection
+- [appsettings.json](OnPrem-CSharp-WebApp/appsettings.json) - default configuration values
+- [rotate-client-certificate.sh](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.sh) - Linux certificate rotation helper
+- [rotate-client-certificate.ps1](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.ps1) - Windows certificate rotation helper
 
 ## High-level design
 The solution follows a simple flow:
@@ -66,14 +66,14 @@ flowchart LR
 ```
 
 The core concepts are:
-- An on-premises application needs a workload identity for Azure
+- On-premises application needs a workload identity for Azure
 - A certificate is used as the credential instead of a client secret
 - The public certificate is uploaded to the Microsoft Entra application registration
 - The private key remains on the on-premises host and is protected by the operating system
 - The application reads the requested secrets from Azure Key Vault through a service principal identity backed by the certificate
 
 ## Prerequisites
-- .NET 8 SDK
+- .NET 10 SDK
 - An Azure subscription
 - An Azure Key Vault instance
 - A Microsoft Entra application registration
@@ -89,15 +89,37 @@ The core concepts are:
 - Create a new registration for the on-premises application.
 - Record the Application (client) ID and Directory (tenant) ID.
 
+![App Registration 01](/images/1-01-Screenshot_App-Registration.png)
+![App Registration 01](/images/1-02-Screenshot_App-Registration.png)
+![App Registration 01](/images/1-03-Screenshot_App-Registration.png)
+
+
 ### 2. Grant Key Vault access
 - Open the target Key Vault.
 - Assign the Key Vault Secrets User role or create an access policy that grants Get and List secret permissions to the application registration.
 - The application registration becomes the identity used by the web application when it connects to Key Vault.
+- Two Accounts/Roles are needed, both Azure Registered Applications:
+  - **Key Vault Secrets Officer**:  Manages secret creation and deletion. Used by the automated deployment account for Continuous Deployment (CD).
+  - **Key Vault Secrets User**: Reads secrets. Used by application accounts.
+
+
+![App Registration 01](/images/2.01-Assign%20Roles-Key_Vault_Secrect_Officer.png)
+![App Registration 01](/images/2.02-Assign%20Roles-Key_Vault_Secrect_Officer.png)
+
+#### Add the Secret
+![App Registration 01](/images/4.01-AKV-Add-Secret.png)
+![App Registration 01](/images/4.03-AKV-Add-Secret.png)
+
+
 
 ### 3. Upload the public certificate
 - Generate or rotate a certificate.
 - Upload the public certificate file to the Microsoft Entra application registration under Certificates.
 - Record the certificate thumbprint for later use in Windows certificate store scenarios.
+
+![App Registration 01](/images/3.01-App-Registration-Upload-cert.png)
+![App Registration 01](/images/3.02-App-Registration-Upload-cert.png)
+
 
 ### 4. Configure the application
 The application expects the following settings under the AzureKeyVault section:

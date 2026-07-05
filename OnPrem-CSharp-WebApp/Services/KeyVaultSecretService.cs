@@ -9,7 +9,7 @@ namespace OnPrem_CSharp_WebApp.Services;
 /// Reads a secret from Azure Key Vault by authenticating with a client certificate.
 /// </summary>
 /// <remarks>
-/// This is intentionally kept simple so it can serve as a reference example.
+/// This is a simple implementation so it can serve as a reference example.
 /// Written by Paul McKee.
 /// </remarks>
 public sealed class KeyVaultSecretService
@@ -192,7 +192,7 @@ public sealed class KeyVaultSecretService
             if (resolvedPemFilePath.EndsWith(".pfx", StringComparison.OrdinalIgnoreCase) ||
                 resolvedPemFilePath.EndsWith(".p12", StringComparison.OrdinalIgnoreCase))
             {
-                return new X509Certificate2(resolvedPemFilePath);
+                return X509CertificateLoader.LoadPkcs12FromFile(resolvedPemFilePath, string.Empty);
             }
 
             if (!string.IsNullOrWhiteSpace(resolvedPublicCertificateFilePath))
