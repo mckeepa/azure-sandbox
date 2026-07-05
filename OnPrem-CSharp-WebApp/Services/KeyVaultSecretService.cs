@@ -38,17 +38,29 @@ public sealed class KeyVaultSecretService
             throw new InvalidOperationException(configurationError);
         }
 
-        string? resolvedPemFilePath = ResolveCertificatePath(_settings.PemFilePath, _contentRootPath);
-        if (string.IsNullOrWhiteSpace(resolvedPemFilePath) || !File.Exists(resolvedPemFilePath))
+        X509Certificate2? certificate;
+        if (_settings.UseWindowsCertificateStore && OperatingSystem.IsWindows())
         {
-            throw new InvalidOperationException($"Certificate file was not found. Checked: {_settings.PemFilePath}");
+            certificate = LoadCertificateFromWindowsStore();
+            if (certificate is null)
+            {
+                throw new InvalidOperationException($"Certificate with thumbprint '{_settings.CertificateThumbprint}' was not found in the Windows certificate store.");
+            }
         }
-
-        string? resolvedPublicCertificateFilePath = ResolveCertificatePath(_settings.PublicCertificateFilePath, _contentRootPath);
-        X509Certificate2? certificate = LoadCertificate(resolvedPemFilePath, resolvedPublicCertificateFilePath);
-        if (certificate is null)
+        else
         {
-            throw new InvalidOperationException($"Certificate could not be loaded from {resolvedPemFilePath}.");
+            string? resolvedPemFilePath = ResolveCertificatePath(_settings.PemFilePath, _contentRootPath);
+            if (string.IsNullOrWhiteSpace(resolvedPemFilePath) || !File.Exists(resolvedPemFilePath))
+            {
+                throw new InvalidOperationException($"Certificate file was not found. Checked: {_settings.PemFilePath}");
+            }
+
+            string? resolvedPublicCertificateFilePath = ResolveCertificatePath(_settings.PublicCertificateFilePath, _contentRootPath);
+            certificate = LoadCertificate(resolvedPemFilePath, resolvedPublicCertificateFilePath);
+            if (certificate is null)
+            {
+                throw new InvalidOperationException($"Certificate could not be loaded from {resolvedPemFilePath}.");
+            }
         }
 
         var credential = new ClientCertificateCredential(_settings.TenantId!, _settings.ClientId!, certificate);
@@ -81,9 +93,19 @@ public sealed class KeyVaultSecretService
             return "AzureKeyVault:ClientId is missing.";
         }
 
-        if (string.IsNullOrWhiteSpace(_settings.PemFilePath))
+        if (_settings.UseWindowsCertificateStore && OperatingSystem.IsWindows())
         {
-            return "AzureKeyVault:PemFilePath is missing.";
+            if (string.IsNullOrWhiteSpace(_settings.CertificateThumbprint))
+            {
+                return "AzureKeyVault:CertificateThumbprint is missing when UseWindowsCertificateStore is enabled.";
+            }
+        }
+        else
+        {
+            if (string.IsNullOrWhiteSpace(_settings.PemFilePath))
+            {
+                return "AzureKeyVault:PemFilePath is missing.";
+            }
         }
 
         if (_settings.SecretNames is null || _settings.SecretNames.Count == 0 || _settings.SecretNames.Any(string.IsNullOrWhiteSpace))
@@ -123,6 +145,38 @@ public sealed class KeyVaultSecretService
             .Where(candidate => !string.IsNullOrWhiteSpace(candidate))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault(File.Exists);
+    }
+
+    private X509Certificate2? LoadCertificateFromWindowsStore()
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_settings.CertificateThumbprint))
+            {
+                return null;
+            }
+
+            if (!Enum.TryParse<StoreLocation>(_settings.CertificateStoreLocation, true, out StoreLocation storeLocation))
+            {
+                storeLocation = StoreLocation.CurrentUser;
+            }
+
+            string storeName = string.IsNullOrWhiteSpace(_settings.CertificateStoreName) ? "My" : _settings.CertificateStoreName;
+            using var store = new X509Store(storeName, storeLocation);
+            store.Open(OpenFlags.ReadOnly);
+
+            X509Certificate2Collection matches = store.Certificates.Find(
+                X509FindType.FindByThumbprint,
+                _settings.CertificateThumbprint,
+                validOnly: false);
+
+            return matches.OfType<X509Certificate2>().FirstOrDefault();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Windows certificate load failed: {ex}");
+            return null;
+        }
     }
 
     /// <summary>

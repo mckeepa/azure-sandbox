@@ -14,5 +14,9 @@ public sealed class KeyVaultOptions
     public string? ClientId { get; set; }
     public string? PemFilePath { get; set; }
     public string? PublicCertificateFilePath { get; set; }
+    public bool UseWindowsCertificateStore { get; set; }
+    public string? CertificateThumbprint { get; set; }
+    public string? CertificateStoreLocation { get; set; } = "CurrentUser";
+    public string? CertificateStoreName { get; set; } = "My";
     public List<string>? SecretNames { get; set; }
 }

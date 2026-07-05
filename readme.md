@@ -1,277 +1,238 @@
 # OnPrem-CSharp-WebApp
 
-Auth Options for Enterprise Application
-1. use secrect for Auth
-1. Use pki mTLS 
-1. Use Azure Arc Identity - Only for Host, so not usfull when host shared with multiple application (NOT RECOMMEDED)
-1. Use Azure Arc Identity for Proces Acoount/Identity (need more reasurch) 
+## Quick start
+- Build the sample app: dotnet build OnPrem-CSharp-WebApp/OnPrem-CSharp-WebApp.csproj
+- Run the sample app: dotnet run --project OnPrem-CSharp-WebApp/OnPrem-CSharp-WebApp.csproj
+- Configure Azure Key Vault settings in the appsettings files or environment variables
+- Choose a certificate source:
+  - file-based mode for Linux or cross-platform deployments
+  - Windows certificate store mode for Windows deployments by setting UseWindowsCertificateStore to true and supplying a certificate thumbprint
+- Retrieve secrets from Azure Key Vault through the JSON endpoint exposed by the app
 
+## Purpose
+This repository exists as a reference implementation for on-premises applications that need to read secrets from Azure Key Vault without storing client secrets in local configuration files. Existing applications often keep secrets and passwords in configuration files or environment variables; this sample demonstrates a safer model based on certificate-based authentication and the Microsoft Entra application identity.
 
-Set up an on-premises C# web application to securely fetch secrets from Azure Key Vault, you cannot use Azure Managed Identities since your application runs outside of Azure.
+## Contents and layout
+The documentation is structured in layers so that a developer can move from high-level concepts to implementation details quickly.
 
-Instead, authenticate using an Microsoft Entra ID App Registration (Service Principal). [1, 2, 3, 4] 
+1. Purpose and scope
+2. Repository structure and component responsibilities
+3. High-level design and runtime flow
+4. Setup and configuration steps
+5. Certificate lifecycle automation
+6. Windows-specific certificate store guidance
 
-
-## 1. Register the Application in Azure Portal
-The on-premises web server needs a cloud identity to log into Azure. [5] 
-
-* Open the Azure Portal and navigate to Microsoft Entra ID.
-* Select App registrations > New registration.
-* Name the application (e.g., OnPrem-CSharp-WebApp) and click Register.
-* Copy the Application (client) ID and Directory (tenant) ID from the overview page.
-* Navigate to Certificates & secrets > New client secret.
-* Copy the generated Secret Value immediately (it will be hidden later). [3, 6, 7, 8] 
-
-![My Diagram](images/1-01-Screenshot_App-Registration.png)
-
-![My Diagram](images/1-02-Screenshot_App-Registration.png)
-
-![My Diagram](images/1-03-Screenshot_App-Registration.png)
-
-## 2. Grant Key Vault Access
-Your newly registered application needs permission to read secrets from your vault. [9] 
-
-* Navigate to your Azure Key Vault. [10] 
-* Go to Access configuration (depending on your vault model, this uses Azure RBAC or Access Policies). [10, 11] 
-* If using Azure RBAC (Recommended): Go to Access Control (IAM) > Add role assignment, select the Key Vault Secrets User role, and assign it to your App Registration. [11, 12, 13, 14, 15] 
-* If using Access Policies: Click Create / Add Access Policy, select Get and List from Secret Permissions, and select your App Registration as the principal. [3, 16] 
-
-* Give anaother user the role access to add secrets
-  - Navigate to IAM: Click Access control (IAM) in the left-hand menu of your Key Vault.
-  - Add Assignment: Click + Add at the top, then select Add role assignment.
-    - Select the Secret Officer Role: Search for and select the Key Vault Secrets Officer role.
-
-
-    Choose Role: Select "Key Vault Secrets User" (this provides read-only access to values, which is ideal for apps). Click Next.Assign Members: Choose User, group, or service principal and click + Select members.
-
-    
-  Note: If you only need to read secrets without editing them, select Key Vault Secrets User instead.Assign Access: Click Next, choose User, group, or service principal, and click + Select members.Find Yourself: Search for your email (paul.mckee.aus@gmail.com), select it, and click Select.
-
-
-## 3. Install NuGet Packages
-Open your C# web application project (e.g., ASP.NET Core) and install the official Azure SDK packages: [17, 18, 19] 
-
-```bash
-dotnet new web -o OnPrem-CSharp-WebApp
-cd OnPrem-CSharp-WebApp/
-
-dotnet add package Azure.Identity
-dotnet add package Azure.Security.KeyVault.Secrets
+## Repository structure
+```text
+OnPrem-CSharp-WebApp/
+├── Program.cs
+├── appsettings.json
+├── appsettings.Development.json
+├── appsettings.Test.json
+├── appsettings.Production.json
+├── Configuration/
+│   └── KeyVaultOptions.cs
+├── Services/
+│   └── KeyVaultSecretService.cs
+├── scripts/
+│   ├── rotate-client-certificate.sh
+│   └── rotate-client-certificate.ps1
+└── Properties/
+    └── launchSettings.json
 ```
 
-## 4. Configure Application Settings
-Store your Azure credentials securely on your on-premises server. For local testing, add them to your appsettings.json: [17, 20, 21] 
+- [OnPrem-CSharp-WebApp/Program.cs](OnPrem-CSharp-WebApp/Program.cs) - application startup, configuration loading, and HTTP endpoint registration
+- [OnPrem-CSharp-WebApp/Services/KeyVaultSecretService.cs](OnPrem-CSharp-WebApp/Services/KeyVaultSecretService.cs) - certificate loading and Key Vault secret retrieval
+- [OnPrem-CSharp-WebApp/Configuration/KeyVaultOptions.cs](OnPrem-CSharp-WebApp/Configuration/KeyVaultOptions.cs) - strongly typed settings for Key Vault and certificate selection
+- [OnPrem-CSharp-WebApp/appsettings.json](OnPrem-CSharp-WebApp/appsettings.json) - default configuration values
+- [OnPrem-CSharp-WebApp/appsettings.Development.json](OnPrem-CSharp-WebApp/appsettings.Development.json), [OnPrem-CSharp-WebApp/appsettings.Test.json](OnPrem-CSharp-WebApp/appsettings.Test.json), and [OnPrem-CSharp-WebApp/appsettings.Production.json](OnPrem-CSharp-WebApp/appsettings.Production.json) - environment-specific overrides
+- [OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.sh](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.sh) - Linux certificate rotation helper
+- [OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.ps1](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.ps1) - Windows certificate rotation helper
+
+## High-level design
+The solution follows a simple flow:
+
+```mermaid
+flowchart LR
+    A[Web application] --> B[KeyVaultSecretService]
+    B --> C{Certificate source}
+    C -->|Windows store| D[Windows Certificate Store]
+    C -->|File based| E[PEM or PFX file]
+    D --> F[ClientCertificateCredential]
+    E --> F
+    F --> G[Microsoft Entra ID]
+    G --> H[Azure Key Vault]
+    H --> I[JSON response]
+```
+
+The core concepts are:
+- An on-premises application needs a workload identity for Azure
+- A certificate is used as the credential instead of a client secret
+- The public certificate is uploaded to the Microsoft Entra application registration
+- The private key remains on the on-premises host and is protected by the operating system
+- The application reads the requested secrets from Azure Key Vault through a service principal identity backed by the certificate
+
+## Prerequisites
+- .NET 8 SDK
+- An Azure subscription
+- An Azure Key Vault instance
+- A Microsoft Entra application registration
+- Access to the Azure portal or Azure CLI
+- OpenSSL for Linux certificate generation
+- PowerShell for Windows certificate management
+
+## Implementation details
+### 1. Register an application in Microsoft Entra ID
+- Open the Azure portal.
+- Navigate to Microsoft Entra ID.
+- Open App registrations.
+- Create a new registration for the on-premises application.
+- Record the Application (client) ID and Directory (tenant) ID.
+
+### 2. Grant Key Vault access
+- Open the target Key Vault.
+- Assign the Key Vault Secrets User role or create an access policy that grants Get and List secret permissions to the application registration.
+- The application registration becomes the identity used by the web application when it connects to Key Vault.
+
+### 3. Upload the public certificate
+- Generate or rotate a certificate.
+- Upload the public certificate file to the Microsoft Entra application registration under Certificates.
+- Record the certificate thumbprint for later use in Windows certificate store scenarios.
+
+### 4. Configure the application
+The application expects the following settings under the AzureKeyVault section:
+
 ```json
 {
   "AzureKeyVault": {
-    "VaultUri": "https://azure.net",
-    "TenantId": "your-directory-tenant-id",
-    "ClientId": "your-application-client-id",
-    "ClientSecret": "your-client-secret-value"
+    "VaultUri": "https://example-vault.vault.azure.net",
+    "TenantId": "00000000-0000-0000-0000-000000000000",
+    "ClientId": "11111111-1111-1111-1111-111111111111",
+    "PemFilePath": "certs/private.pem",
+    "PublicCertificateFilePath": "certs/public.crt",
+    "UseWindowsCertificateStore": false,
+    "CertificateThumbprint": "",
+    "CertificateStoreLocation": "CurrentUser",
+    "CertificateStoreName": "My",
+    "SecretNames": [
+      "MySecretName"
+    ]
   }
 }
 ```
 
-Will look like this:
-
-```json
-{
-  "Logging": {
-    "LogLevel": {
-      "Default": "Information",
-      "Microsoft.AspNetCore": "Warning"
-    }
-  },
-  "AzureKeyVault": {
-    "VaultUri": "https://azure.net",
-    "TenantId": "your-directory-tenant-id",
-    "ClientId": "your-application-client-id",
-    "ClientSecret": "your-client-secret-value"
-  },
-
-  "AllowedHosts": "*"
-}
+### 5. Build and run the sample
+```bash
+dotnet build OnPrem-CSharp-WebApp/OnPrem-CSharp-WebApp.csproj
+dotnet run --project OnPrem-CSharp-WebApp/OnPrem-CSharp-WebApp.csproj
 ```
 
-(Note: For on-premises production deployments, consider loading these four values from environment variables instead of hardcoding them in the file). [22] 
-## 5. Add C# Implementation
-Initialize the SecretClient using ClientSecretCredential to fetch your secrets programmatically: [17, 23] 
+The root endpoint returns a JSON payload containing the retrieved secret values.
 
-```C#
-
-using Azure.Identity;using 
-Azure.Security.KeyVault.Secrets;
-
-var builder = WebApplication.CreateBuilder(args);
-
-// Load settings from appsettings.json
-var kvSettings = builder.Configuration.GetSection("AzureKeyVault");
-string vaultUri = kvSettings["VaultUri"];
-string tenantId = kvSettings["TenantId"];
-string clientId = kvSettings["ClientId"];
-string clientSecret = kvSettings["ClientSecret"];
-
-// Authenticate using the Service Principal
-var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
-
-// Instantiate the Secret Client
-var secretClient = new SecretClient(new Uri(vaultUri), credential);
-
-// Example: Retrieve a specific secret explicitly
-
-KeyVaultSecret secret = await secretClient.GetSecretAsync("MySecretName");
-string secretValue = secret.Value;
-var app = builder.Build();
-app.MapGet("/", () => $"Retrieved secret value: {secretValue}");
-app.Run();
+## Linux certificate flow
+### Generate a self-signed certificate
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes \
+  -days 365 \
+  -subj "/CN=OnPremKeyVaultApp" \
+  -keyout private.pem \
+  -out public.crt
 ```
- 
-# Use Pem Certificate and NO Secrets in configs
 
-To eliminate client secret strings entirely,  authenticate the  on-premises application using an Asymmetric X.509 Certificate.
-When using this method, the application uses a private key (stored locally) to sign a JWT token, and Microsoft Entra ID verifies it using the public key stored in the cloud.
-
-## 1. Generate a Self-Signed Certificate
-If you do not have a certificate from an internal or public Certificate Authority, generate a self-signed one via OpenSSL. 
-Ensure both the .crt (public key) and a .pem or .pfx (private key) files are exported. 
-
-# Generate a private key and a public certificate valid for 2 years
-```shell
-openssl req -x509 -newkey rsa:4096 -keyout private.pem -out public.crt -days 7 -nodes -subj "/CN=OnPremKeyVaultApp"
-
-
-========
-openssl req -x509 -newkey rsa:2048 -nodes \
-  -keyout private.pem \
-  -out public.crt \
-  -days 365 \
-  -subj "/CN=OnPremKeyVaultApp"
-
-# creates:
-#    private.pem: the private key
-#    public.crt: the public certificate
-
-# Verify the files were created
-ls -l private.pem public.crt
-
-# Confirm the key and certificate match
-openssl x509 -in public.crt -noout -modulus | openssl md5
-openssl rsa -in private.pem -noout -modulus | openssl md5
-
-# The two hashes should be the same.
-
-# Place the files where the app can find them
-# The app is currently configured to look for a file named private.pem in the runtime directory, so a simple approach is:
-cp private.pem ~/repos/azure-secret-on-prem/OnPrem-CSharp-WebApp/bin/Debug/net8.0/private.pem
-cp public.crt ~/repos/azure-secret-on-prem/OnPrem-CSharp-WebApp/bin/Debug/net8.0/public.crt
-
-#=====================
-# Or use PKCS#12 format
-#======================
-
-openssl req -x509 -newkey rsa:2048 -nodes \
-  -keyout private.pem \
-  -out public.crt \
-  -days 365 \
-  -subj "/CN=OnPremKeyVaultApp"
-
+### Optional PKCS#12 bundle
+```bash
 openssl pkcs12 -export \
   -out certificate.pfx \
   -inkey private.pem \
   -in public.crt \
   -passout pass:changeit
-
-#  this creates:
-#    private.pem: private key
-#    public.crt: public certificate
-#    certificate.pfx: PKCS#12 bundle containing both
-
-# Copy it into the app output folder if needed:
-cp certificate.pfx ~/repos/azure-secret-on-prem/OnPrem-CSharp-WebApp/bin/Debug/net8.0/certificate.pfx
-
 ```
-## 2. Upload the Public Key to Azure
-Microsoft Entra ID needs the public part of your certificate to verify your application's identity. [7] 
 
-* Go to the Azure Portal > Microsoft Entra ID > App registrations.
-* Select your existing application (OnPrem-CSharp-WebApp).
-* Click Certificates & secrets > Certificates > Upload certificate.
-* Select the public.crt file and click Add.
-* Copy the Thumbprint value generated by Azure. [8, 9, 10, 11, 12] 
+### Store the files for the application
+The repository now uses a certs folder for the sample configuration. The service resolves the configured certificate path relative to the application content root and runtime base directory.
 
-## 3. Securely Store the PEM File On-Premises
-Place your private.pem file in a secure directory on your local server. [13] 
+## Windows certificate store flow
+Windows deployments can load the certificate directly from the Windows certificate store by thumbprint. This model is suitable for services that run under a dedicated service account and need the private key to remain protected by the Windows store.
 
-* Crucial: Restrict file system permissions so only the exact user identity running your web application pool (e.g., IIS_IUSRS or a specific service account) can read this file.
-
-## 4. Update Application Configuration
-Remove the ClientSecret completely from your config. Update your appsettings.json to reference the file path of your private certificate:
+### Example configuration
 ```json
 {
   "AzureKeyVault": {
-    "VaultUri": "https://azure.net",
-    "TenantId": "your-directory-tenant-id",
-    "ClientId": "your-application-client-id",
-    "PemFilePath": "C:\\ProgramData\\YourApp\\private.pem"
+    "VaultUri": "https://example-vault.vault.azure.net",
+    "TenantId": "00000000-0000-0000-0000-000000000000",
+    "ClientId": "11111111-1111-1111-1111-111111111111",
+    "UseWindowsCertificateStore": true,
+    "CertificateThumbprint": "AA11BB22CC33DD44EE55FF66778899A0B1C2D3E",
+    "CertificateStoreLocation": "CurrentUser",
+    "CertificateStoreName": "My",
+    "SecretNames": [
+      "MySecretName"
+    ]
   }
 }
 ```
 
-## 5. Update C# Implementation
-Replace ClientSecretCredential with ClientCertificateCredential. The Azure SDK natively handles loading private keys directly from PEM files via the ClientCertificateCredentialOptions.
-```C#
-using Azure.Identity;using Azure.Security.KeyVault.Secrets;
-var builder = WebApplication.CreateBuilder(args);
-var kvSettings = builder.Configuration.GetSection("AzureKeyVault");
-string vaultUri = kvSettings["VaultUri"];
-string tenantId = kvSettings["TenantId"];
-string clientId = kvSettings["ClientId"];
-string pemFilePath = kvSettings["PemFilePath"];
+### Example code for loading from the Windows certificate store
+```csharp
+using System.Security.Cryptography.X509Certificates;
+using Azure.Identity;
+using Azure.Security.KeyVault.Secrets;
 
-// Create credential using the on-premises PEM file path
-var credential = new ClientCertificateCredential(
-    tenantId, 
-    clientId, 
-    pemFilePath
-);
+var thumbprint = builder.Configuration["AzureKeyVault:CertificateThumbprint"];
+var storeName = builder.Configuration["AzureKeyVault:CertificateStoreName"] ?? "My";
+var storeLocation = Enum.Parse<StoreLocation>(builder.Configuration["AzureKeyVault:CertificateStoreLocation"] ?? "CurrentUser", true);
 
-// Initialize SecretClient using the certificate credential
+using var store = new X509Store(storeName, storeLocation);
+store.Open(OpenFlags.ReadOnly);
+
+var matches = store.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, validOnly: false);
+var certificate = matches.OfType<X509Certificate2>().FirstOrDefault();
+
+if (certificate is null)
+{
+    throw new InvalidOperationException("Certificate was not found in the Windows certificate store.");
+}
+
+var credential = new ClientCertificateCredential(tenantId, clientId, certificate);
 var secretClient = new SecretClient(new Uri(vaultUri), credential);
-
-// Fetch secret securely
-KeyVaultSecret secret = await secretClient.GetSecretAsync("MySecretName");string secretValue = secret.Value;
-var app = builder.Build();
-app.MapGet("/", () => $"Authenticated with Certificate. Secret value: {secretValue}");
-app.Run();
 ```
-## 6. Delete the Old Client Secret
-Now that your code successfully compiles and connects via certificate:
 
-* Return to Microsoft Entra ID > App registrations > Certificates & secrets.
+### Windows service account permissions
+The service account that runs the web application should receive read access to the private key container. The PowerShell helper script grants that access automatically when a service account name is provided.
 
-## Certificate flow in plain English
-This sample uses a certificate-based identity because the app runs on-premises and cannot rely on Azure-managed identity.
+## Certificate rotation helpers
+### Linux helper
+The shell script at [OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.sh](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.sh) creates a new certificate, stores the new material in the certs folder, archives the previous files, and optionally uploads the public certificate to the Microsoft Entra application registration.
 
-The flow is:
-1. The app reads a private key from a PEM file on disk.
-2. The app also reads the matching public certificate so it can build a usable X.509 client certificate object.
-3. That certificate is presented to Microsoft Entra ID as the application identity.
-4. If Entra ID accepts the certificate, Azure Key Vault allows the app to read the requested secret.
+```bash
+cd OnPrem-CSharp-WebApp
+APP_ID=<app-registration-id> TENANT_ID=<tenant-id> ./scripts/rotate-client-certificate.sh
+```
 
-In other words:
-- the private key stays on the on-premises machine and is never sent to Azure
-- the public certificate is uploaded to the app registration so Entra ID can verify the identity
-- the app then uses that identity to access Key Vault
+### Windows helper
+The PowerShell script at [OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.ps1](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.ps1) creates a new self-signed certificate in the Windows certificate store, exports backup files, optionally grants read access to the web application service account, and optionally uploads the new public certificate to the Microsoft Entra application registration.
 
-For this example, the app expects the following settings in configuration:
-- AzureKeyVault:VaultUri
-- AzureKeyVault:TenantId
-- AzureKeyVault:ClientId
-- AzureKeyVault:PemFilePath
-- AzureKeyVault:PublicCertificateFilePath
-- AzureKeyVault:SecretName
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\rotate-client-certificate.ps1 -StoreLocation CurrentUser -ServiceAccount "NT SERVICE\W3SVC"
+```
 
-If you prefer a simpler deployment model, you can replace the separate PEM files with a single PFX/P12 file and point PemFilePath at it.
-* Under Client secrets, click the Trash icon (Delete) next to the old string secret to revoke it. [14] 
+## How the runtime flow works
+1. The application loads configuration from appsettings files and environment variables.
+2. The service resolves the configured certificate source.
+3. The certificate is loaded from a file or from the Windows certificate store.
+4. A ClientCertificateCredential is created with the certificate.
+5. The credential is used to authenticate to Microsoft Entra ID.
+6. The resulting identity is used to read secrets from Azure Key Vault.
+7. The application returns the retrieved secret values in JSON.
 
-If you are interested, I can show you how to load this certificate from the Windows Certificate Store instead of a file path, or help you configure automatic key rotation for this certificate. Which step would you like to explore next?  
+## Operational notes
+- The private key remains on the on-premises machine and is not sent to Azure.
+- The public certificate is uploaded to the application registration so Microsoft Entra ID can verify the identity.
+- The application uses that identity to access Key Vault.
+- File-based deployments can use PEM or PFX files.
+- Windows store deployments can use the certificate thumbprint and the Windows-protected key store.
+
+## Next steps
+- Add deployment automation for certificate rotation
+- Add environment-specific secret names and certificate thumbprints
+- Integrate the pattern into existing on-premises services that currently store secrets in local configuration files
