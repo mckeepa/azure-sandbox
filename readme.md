@@ -256,4 +256,3 @@ powershell -ExecutionPolicy Bypass -File .\scripts\rotate-client-certificate.ps1
 ## Next steps
 - Add deployment automation for certificate rotation
 - Add environment-specific secret names and certificate thumbprints
-- Integrate the pattern into existing on-premises services that currently store secrets in local configuration files
