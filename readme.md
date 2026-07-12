@@ -1,29 +1,31 @@
-# OnPrem-CSharp-WebApp
+# Azure Key Vault On-Prem Demo
 
-## Quick start
-- Build the sample app: dotnet build OnPrem-CSharp-WebApp/OnPrem-CSharp-WebApp.csproj
-- Run the sample app: dotnet run --project OnPrem-CSharp-WebApp/OnPrem-CSharp-WebApp.csproj
-- Ensure the local machine has the .NET 10 SDK installed before building or running the sample
-- Configure Azure Key Vault settings in the appsettings files or environment variables
-- Choose a certificate source:
-  - file-based mode for Linux or cross-platform deployments
-  - Windows certificate store mode for Windows deployments by setting UseWindowsCertificateStore to true and supplying a certificate thumbprint
-- Retrieve secrets from Azure Key Vault through the JSON endpoint exposed by the app
+This repository contains a small .NET web application that demonstrates a secure way for on-premises workloads to consume secrets from Azure Key Vault without relying on shared secrets or embedded passwords.
 
-## Purpose
-This repository exists as a reference implementation for on-premises applications that need to read secrets from Azure Key Vault without storing client secrets in local configuration files. Existing applications often keep secrets and passwords in configuration files or environment variables; this sample demonstrates a safer model based on certificate-based authentication and the Microsoft Entra application identity.
+The sample is intentionally developer-friendly and practical:
+- It exposes a simple browser UI at the root URL.
+- It supports read, list, and create workflows for Key Vault secrets.
+- It uses certificate-based authentication to Microsoft Entra ID.
+- It enforces least-privilege access so different workloads only receive access to the secrets they need.
 
-## Contents and layout
-The documentation is structured in layers so that a developer can move from high-level concepts to implementation details quickly.
+## What this app does
+The application can:
+- Read a specific secret from Azure Key Vault.
+- List the secrets an identity is permitted to access.
+- Create a new secret and assign reader/writer access at the secret scope.
 
-1. Purpose and scope
-2. Repository structure and component responsibilities
-3. High-level design and runtime flow
-4. Setup and configuration steps
-5. Certificate lifecycle automation
-6. Windows-specific certificate store guidance
+It is designed for a scenario where an on-premises host needs to retrieve secrets from Azure Key Vault in a controlled and auditable way.
 
-## Repository structure
+## Security model
+This solution is based on the following principles:
+- Shared secrets are not allowed for Key Vault access.
+- Authentication must use certificates (or other strong workload identity mechanisms) rather than client secrets or connection strings.
+- At least two service identities are expected:
+  - A reader identity for workloads that only need to read secrets.
+  - A writer identity for workloads that create or manage secrets.
+- Access should be scoped tightly to the secrets each workload needs. In practice, this means applying Azure RBAC or equivalent secret-level access control so each workload can access only the secrets relevant to its purpose.
+
+## Repository layout
 ```text
 OnPrem-CSharp-WebApp/
 ├── Program.cs
@@ -34,6 +36,7 @@ OnPrem-CSharp-WebApp/
 ├── Configuration/
 │   └── KeyVaultOptions.cs
 ├── Services/
+│   ├── KeyVaultAdminService.cs
 │   └── KeyVaultSecretService.cs
 ├── scripts/
 │   ├── rotate-client-certificate.sh
@@ -42,86 +45,35 @@ OnPrem-CSharp-WebApp/
     └── launchSettings.json
 ```
 
-- [Program.cs](OnPrem-CSharp-WebApp/Program.cs) - application startup, configuration loading, and HTTP endpoint registration
-- [KeyVaultSecretService.cs](OnPrem-CSharp-WebApp/Services/KeyVaultSecretService.cs) - certificate loading and Key Vault secret retrieval
-- [KeyVaultOptions.cs](OnPrem-CSharp-WebApp/Configuration/KeyVaultOptions.cs) - strongly typed settings for Key Vault and certificate selection
-- [appsettings.json](OnPrem-CSharp-WebApp/appsettings.json) - default configuration values
-- [rotate-client-certificate.sh](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.sh) - Linux certificate rotation helper
-- [rotate-client-certificate.ps1](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.ps1) - Windows certificate rotation helper
-
-## High-level design
-The solution follows a simple flow:
-
-```mermaid
-flowchart LR
-    A[Web application] --> B[KeyVaultSecretService]
-    B --> C{Certificate source}
-    C -->|Windows store| D[Windows Certificate Store]
-    C -->|File based| E[PEM or PFX file]
-    D --> F[ClientCertificateCredential]
-    E --> F
-    F --> G[Microsoft Entra ID]
-    G --> H[Azure Key Vault]
-    H --> I[JSON response]
-```
-
-The core concepts are:
-- On-premises application needs a workload identity for Azure
-- A certificate is used as the credential instead of a client secret
-- The public certificate is uploaded to the Microsoft Entra application registration
-- The private key remains on the on-premises host and is protected by the operating system
-- The application reads the requested secrets from Azure Key Vault through a service principal identity backed by the certificate
-
 ## Prerequisites
 - .NET 10 SDK
 - An Azure subscription
 - An Azure Key Vault instance
-- A Microsoft Entra application registration
-- Access to the Azure portal or Azure CLI
-- OpenSSL for Linux certificate generation
-- PowerShell for Windows certificate management
+- Microsoft Entra ID access to create or configure application registrations / service principals
+- A certificate for client authentication
+- Access to Azure CLI or the Azure portal for role assignment and configuration
 
-## Implementation details
-### 1. Register an application in Microsoft Entra ID
-- Open the Azure portal.
-- Navigate to Microsoft Entra ID.
-- Open App registrations.
-- Create a new registration for the on-premises application.
-- Record the Application (client) ID and Directory (tenant) ID.
+## Quick start
+1. Build the app:
+   ```bash
+   dotnet build OnPrem-CSharp-WebApp/OnPrem-CSharp-WebApp.csproj
+   ```
+2. Run the app:
+   ```bash
+   dotnet run --project OnPrem-CSharp-WebApp/OnPrem-CSharp-WebApp.csproj
+   ```
+3. Open the UI in your browser:
+   ```text
+   https://localhost:7017/
+   ```
 
-![App Registration 01](/images/1-01-Screenshot_App-Registration.png)
-![App Registration 01](/images/1-02-Screenshot_App-Registration.png)
-![App Registration 01](/images/1-03-Screenshot_App-Registration.png)
+The app also exposes these endpoints:
+- POST /secrets/read
+- POST /secrets/list-all
+- POST /secrets/create
 
-
-### 2. Grant Key Vault access
-- Open the target Key Vault.
-- Assign the ***Key Vault Secrets User*** role or create an access policy that grants Get and List secret permissions to the application registration.
-- The application registration becomes the identity used by the web application when it connects to Key Vault.
-- Two Accounts/Roles suld be used, both should be Azure Registered Applications:
-  - **Key Vault Secrets Officer**:  Manages secret creation and deletion. Used by the automated deployment account for Continuous Deployment (CD).
-  - **Key Vault Secrets User**: Reads secrets. Used by application accounts.  Application should not modify the secrets.
-
-![App Registration 01](/images/2.01-Assign%20Roles-Key_Vault_Secrect_Officer.png)
-![App Registration 01](/images/2.02-Assign%20Roles-Key_Vault_Secrect_Officer.png)
-
-#### Add the Secret
-![App Registration 01](/images/4.01-AKV-Add-Secret.png)
-![App Registration 01](/images/4.03-AKV-Add-Secret.png)
-
-
-
-### 3. Upload the public certificate
-- Generate or rotate a certificate.
-- Upload the public certificate file to the Microsoft Entra application registration under Certificates.
-- Record the certificate thumbprint for later use in Windows certificate store scenarios.
-
-![App Registration 01](/images/3.01-App-Registration-Upload-cert.png)
-![App Registration 01](/images/3.02-App-Registration-Upload-cert.png)
-
-
-### 4. Configure the application
-The application expects the following settings under the AzureKeyVault section:
+## Configuration
+The app reads its settings from appsettings files and environment variables. The most important values are under the AzureKeyVault section:
 
 ```json
 {
@@ -142,16 +94,68 @@ The application expects the following settings under the AzureKeyVault section:
 }
 ```
 
-### 5. Build and run the sample
-```bash
-dotnet build OnPrem-CSharp-WebApp/OnPrem-CSharp-WebApp.csproj
-dotnet run --project OnPrem-CSharp-WebApp/OnPrem-CSharp-WebApp.csproj
-```
+## Authentication and identity model
+This sample expects certificate-based authentication to Microsoft Entra ID.
 
-The root endpoint returns a JSON payload containing the retrieved secret values.
+### Required identities
+You should plan for at least two identities:
+- Reader identity: used by workloads that only need to read secrets.
+- Writer identity: used by automation or deployment workflows that create secrets and grant access.
 
-## Linux certificate flow
-### Generate a self-signed certificate
+These identities should be represented as Entra application registrations or service principals, not as shared client secrets.
+
+### Certificate requirement
+The private key must remain on the trusted on-premises host. The public certificate is uploaded to the Entra application registration so Azure can validate the certificate-based client assertion.
+
+This sample explicitly assumes that certificate-based authentication is the approved method. Shared secrets are not part of the design.
+
+## Azure Key Vault access design
+Use Azure RBAC at the secret scope whenever possible. The goal is to give each workload access only to the specific secrets it needs.
+
+Recommended pattern:
+- Reader identity gets the Key Vault Secrets User role on only the secrets it needs to read.
+- Writer identity gets the Key Vault Secrets Officer role on the secrets it needs to create or manage.
+- Avoid granting broad vault-level access when a secret-specific assignment is enough.
+
+The sample includes logic to create a secret and assign roles at the specific secret scope so that reader and writer access can be granted independently.
+
+## Setup steps
+### 1. Create the Entra application identities
+Create or identify the reader and writer service principals in Microsoft Entra ID.
+
+### 2. Upload the public certificates
+Generate or rotate a certificate and upload the public portion to the corresponding Entra application registration.
+
+### 3. Enable Azure RBAC on the Key Vault
+Use Azure RBAC instead of legacy access policies where possible.
+
+### 4. Assign secret-scoped permissions
+Grant:
+- Reader identity: Key Vault Secrets User on the target secret(s)
+- Writer identity: Key Vault Secrets Officer on the target secret(s)
+
+This keeps workloads isolated and prevents unnecessary access.
+
+### 5. Configure the app
+Populate the AzureKeyVault section with the vault URI, tenant ID, client ID, and certificate settings.
+
+### 6. Run and use the app
+Once configured, the app can be launched locally and used through the browser UI or by posting to the API endpoints.
+
+## Automation expectations
+All setup and operational workflows should be automated where possible.
+
+This includes:
+- Certificate creation and rotation
+- Certificate upload to Microsoft Entra ID
+- Application configuration provisioning
+- Secret creation and role assignment
+- Secret read workflows for runtime consumption
+
+The repository includes helper scripts for certificate lifecycle management and the app itself supports automated creation and assignment of access for secrets.
+
+## Certificate workflow
+### Linux
 ```bash
 openssl req -x509 -newkey rsa:2048 -nodes \
   -days 365 \
@@ -160,100 +164,28 @@ openssl req -x509 -newkey rsa:2048 -nodes \
   -out public.crt
 ```
 
-### Optional PKCS#12 bundle
-```bash
-openssl pkcs12 -export \
-  -out certificate.pfx \
-  -inkey private.pem \
-  -in public.crt \
-  -passout pass:changeit
-```
+### Windows
+Use the PowerShell helper script to create or rotate a certificate in the Windows certificate store.
 
-### Store the files for the application
-The repository now uses a certs folder for the sample configuration. The service resolves the configured certificate path relative to the application content root and runtime base directory.
-
-## Windows certificate store flow
-Windows deployments can load the certificate directly from the Windows certificate store by thumbprint. This model is suitable for services that run under a dedicated service account and need the private key to remain protected by the Windows store.
-
-### Example configuration
-```json
-{
-  "AzureKeyVault": {
-    "VaultUri": "https://example-vault.vault.azure.net",
-    "TenantId": "00000000-0000-0000-0000-000000000000",
-    "ClientId": "11111111-1111-1111-1111-111111111111",
-    "UseWindowsCertificateStore": true,
-    "CertificateThumbprint": "AA11BB22CC33DD44EE55FF66778899A0B1C2D3E",
-    "CertificateStoreLocation": "CurrentUser",
-    "CertificateStoreName": "My",
-    "SecretNames": [
-      "MySecretName"
-    ]
-  }
-}
-```
-
-### Example code for loading from the Windows certificate store
-```csharp
-using System.Security.Cryptography.X509Certificates;
-using Azure.Identity;
-using Azure.Security.KeyVault.Secrets;
-
-var thumbprint = builder.Configuration["AzureKeyVault:CertificateThumbprint"];
-var storeName = builder.Configuration["AzureKeyVault:CertificateStoreName"] ?? "My";
-var storeLocation = Enum.Parse<StoreLocation>(builder.Configuration["AzureKeyVault:CertificateStoreLocation"] ?? "CurrentUser", true);
-
-using var store = new X509Store(storeName, storeLocation);
-store.Open(OpenFlags.ReadOnly);
-
-var matches = store.Certificates.Find(X509FindType.FindByThumbprint, thumbprint, validOnly: false);
-var certificate = matches.OfType<X509Certificate2>().FirstOrDefault();
-
-if (certificate is null)
-{
-    throw new InvalidOperationException("Certificate was not found in the Windows certificate store.");
-}
-
-var credential = new ClientCertificateCredential(tenantId, clientId, certificate);
-var secretClient = new SecretClient(new Uri(vaultUri), credential);
-```
-
-### Windows service account permissions
-The service account that runs the web application should receive read access to the private key container. The PowerShell helper script grants that access automatically when a service account name is provided.
-
-## Certificate rotation helpers
-### Linux helper
-The shell script at [OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.sh](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.sh) creates a new certificate, stores the new material in the certs folder, archives the previous files, and optionally uploads the public certificate to the Microsoft Entra application registration.
-
-```bash
-cd OnPrem-CSharp-WebApp
-APP_ID=<app-registration-id> TENANT_ID=<tenant-id> ./scripts/rotate-client-certificate.sh
-```
-
-### Windows helper
-The PowerShell script at [OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.ps1](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.ps1) creates a new self-signed certificate in the Windows certificate store, exports backup files, optionally grants read access to the web application service account, and optionally uploads the new public certificate to the Microsoft Entra application registration.
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\rotate-client-certificate.ps1 -StoreLocation CurrentUser -ServiceAccount "NT SERVICE\W3SVC"
-```
+## Helper scripts
+- [OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.sh](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.sh) creates or rotates a certificate on Linux.
+- [OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.ps1](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.ps1) creates or rotates a certificate on Windows.
 
 ## How the runtime flow works
 1. The application loads configuration from appsettings files and environment variables.
-2. The service resolves the configured certificate source.
-3. The certificate is loaded from a file or from the Windows certificate store.
-4. A ClientCertificateCredential is created with the certificate.
-5. The credential is used to authenticate to Microsoft Entra ID.
-6. The resulting identity is used to read secrets from Azure Key Vault.
-7. The application returns the retrieved secret values in JSON.
+2. It resolves the configured certificate source from a file or Windows certificate store.
+3. It creates a client certificate credential for Microsoft Entra ID.
+4. It authenticates to Azure Key Vault using that credential.
+5. It reads or creates secrets according to the requested workflow.
+6. It returns the result through the browser UI or the HTTP endpoints.
 
 ## Operational notes
-- The private key remains on the on-premises machine and is not sent to Azure.
-- The public certificate is uploaded to the application registration so Microsoft Entra ID can verify the identity.
-- The application uses that identity to access Key Vault.
-- File-based deployments can use PEM or PFX files.
-- Windows store deployments can use the certificate thumbprint and the Windows-protected key store.
+- The private key stays on the on-premises machine and is never sent to Azure.
+- The public certificate is uploaded to the app registration so Entra ID can validate the identity.
+- Secret-level RBAC is preferred over broad vault-wide access.
+- The design is intended to support automated deployment and runtime operations rather than manual secret handling.
 
-## Next steps
-- Add deployment automation for certificate rotation
-- Add environment-specific secret names and certificate thumbprints
-- Integrate the pattern into existing on-premises services that currently store secrets in local configuration files
+## Troubleshooting
+- If authentication fails, verify that the public certificate was uploaded to the correct Entra application registration and that the private key matches.
+- If a secret cannot be read, confirm that the reader identity has access to that specific secret.
+- If secret creation fails, confirm that the writer identity has the required role assignment and that the Key Vault and subscription settings are correct.

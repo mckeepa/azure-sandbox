@@ -32,35 +32,33 @@ public sealed class KeyVaultSecretService
     /// </summary>
     public async Task<IReadOnlyDictionary<string, string>> GetSecretValuesAsync()
     {
-        string? configurationError = ValidateConfiguration();
+        string? configurationError = ValidateConfiguration(requireSecretNames: true);
         if (!string.IsNullOrWhiteSpace(configurationError))
         {
             throw new InvalidOperationException(configurationError);
         }
 
-        X509Certificate2? certificate;
-        if (_settings.UseWindowsCertificateStore && OperatingSystem.IsWindows())
+        var secrets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string secretName in SecretNames)
         {
-            certificate = LoadCertificateFromWindowsStore();
-            if (certificate is null)
-            {
-                throw new InvalidOperationException($"Certificate with thumbprint '{_settings.CertificateThumbprint}' was not found in the Windows certificate store.");
-            }
+            secrets[secretName] = await GetSecretValueAsync(secretName);
         }
-        else
-        {
-            string? resolvedPemFilePath = ResolveCertificatePath(_settings.PemFilePath, _contentRootPath);
-            if (string.IsNullOrWhiteSpace(resolvedPemFilePath) || !File.Exists(resolvedPemFilePath))
-            {
-                throw new InvalidOperationException($"Certificate file was not found. Checked: {_settings.PemFilePath}");
-            }
 
-            string? resolvedPublicCertificateFilePath = ResolveCertificatePath(_settings.PublicCertificateFilePath, _contentRootPath);
-            certificate = LoadCertificate(resolvedPemFilePath, resolvedPublicCertificateFilePath);
-            if (certificate is null)
-            {
-                throw new InvalidOperationException($"Certificate could not be loaded from {resolvedPemFilePath}.");
-            }
+        return secrets;
+    }
+
+    public async Task<IReadOnlyDictionary<string, string>> ListAccessibleSecretsAsync()
+    {
+        string? configurationError = ValidateConfiguration(requireSecretNames: false);
+        if (!string.IsNullOrWhiteSpace(configurationError))
+        {
+            throw new InvalidOperationException(configurationError);
+        }
+
+        X509Certificate2? certificate = LoadCertificate();
+        if (certificate is null)
+        {
+            throw new InvalidOperationException("The configured client certificate could not be loaded.");
         }
 
         var credential = new ClientCertificateCredential(_settings.TenantId!, _settings.ClientId!, certificate);
@@ -69,10 +67,15 @@ public sealed class KeyVaultSecretService
         try
         {
             var secrets = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (string secretName in SecretNames)
+            await foreach (SecretProperties secretProperties in secretClient.GetPropertiesOfSecretsAsync())
             {
-                KeyVaultSecret secret = await secretClient.GetSecretAsync(secretName);
-                secrets[secretName] = secret.Value;
+                if (string.IsNullOrWhiteSpace(secretProperties.Name))
+                {
+                    continue;
+                }
+
+                KeyVaultSecret secret = await secretClient.GetSecretAsync(secretProperties.Name);
+                secrets[secretProperties.Name] = secret.Value ?? string.Empty;
             }
 
             return secrets;
@@ -85,7 +88,66 @@ public sealed class KeyVaultSecretService
         }
     }
 
-    private string? ValidateConfiguration()
+    public async Task<string> GetSecretValueAsync(string secretName)
+    {
+        string? configurationError = ValidateConfiguration(requireSecretNames: true);
+        if (!string.IsNullOrWhiteSpace(configurationError))
+        {
+            throw new InvalidOperationException(configurationError);
+        }
+
+        X509Certificate2? certificate = LoadCertificate();
+        if (certificate is null)
+        {
+            throw new InvalidOperationException("The configured client certificate could not be loaded.");
+        }
+
+        var credential = new ClientCertificateCredential(_settings.TenantId!, _settings.ClientId!, certificate);
+        var secretClient = new SecretClient(new Uri(_settings.VaultUri!), credential);
+
+        try
+        {
+            KeyVaultSecret secret = await secretClient.GetSecretAsync(secretName);
+            return secret.Value;
+        }
+        catch (Exception ex) when (IsCertificateAuthenticationFailure(ex))
+        {
+            throw new InvalidOperationException(
+                "Azure Entra rejected the client certificate. Upload the public certificate to the Microsoft Entra application registration and confirm that the private key matches the uploaded certificate.",
+                ex);
+        }
+    }
+
+    public X509Certificate2? LoadCertificate()
+    {
+        if (_settings.UseWindowsCertificateStore && OperatingSystem.IsWindows())
+        {
+            X509Certificate2? certificate = LoadCertificateFromWindowsStore();
+            if (certificate is null)
+            {
+                throw new InvalidOperationException($"Certificate with thumbprint '{_settings.CertificateThumbprint}' was not found in the Windows certificate store.");
+            }
+
+            return certificate;
+        }
+
+        string? resolvedPemFilePath = ResolveCertificatePath(_settings.PemFilePath, _contentRootPath);
+        if (string.IsNullOrWhiteSpace(resolvedPemFilePath) || !File.Exists(resolvedPemFilePath))
+        {
+            throw new InvalidOperationException($"Certificate file was not found. Checked: {_settings.PemFilePath}");
+        }
+
+        string? resolvedPublicCertificateFilePath = ResolveCertificatePath(_settings.PublicCertificateFilePath, _contentRootPath);
+        X509Certificate2? certificateFromFiles = LoadCertificate(resolvedPemFilePath, resolvedPublicCertificateFilePath);
+        if (certificateFromFiles is null)
+        {
+            throw new InvalidOperationException($"Certificate could not be loaded from {resolvedPemFilePath}.");
+        }
+
+        return certificateFromFiles;
+    }
+
+    private string? ValidateConfiguration(bool requireSecretNames)
     {
         if (string.IsNullOrWhiteSpace(_settings.VaultUri))
         {
@@ -117,7 +179,7 @@ public sealed class KeyVaultSecretService
             }
         }
 
-        if (_settings.SecretNames is null || _settings.SecretNames.Count == 0 || _settings.SecretNames.Any(string.IsNullOrWhiteSpace))
+        if (requireSecretNames && (_settings.SecretNames is null || _settings.SecretNames.Count == 0 || _settings.SecretNames.Any(string.IsNullOrWhiteSpace)))
         {
             return "AzureKeyVault:SecretNames is missing or contains an empty value.";
         }

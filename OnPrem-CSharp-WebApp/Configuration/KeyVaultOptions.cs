@@ -19,4 +19,6 @@ public sealed class KeyVaultOptions
     public string? CertificateStoreLocation { get; set; } = "CurrentUser";
     public string? CertificateStoreName { get; set; } = "My";
     public List<string>? SecretNames { get; set; }
+    public string? SubscriptionId { get; set; }
+    public string? VaultResourceId { get; set; }
 }
