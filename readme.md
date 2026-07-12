@@ -1,29 +1,53 @@
 # Azure Key Vault On-Prem Demo
 
-This repository contains a small .NET web application that demonstrates a secure way for on-premises workloads to consume secrets from Azure Key Vault without relying on shared secrets or embedded passwords.
+This repository contains a small .NET web application that demonstrates how an on-premises workload can securely consume secrets from Azure Key Vault without using shared secrets or embedded passwords.
 
-The sample is intentionally developer-friendly and practical:
-- It exposes a simple browser UI at the root URL.
-- It supports read, list, and create workflows for Key Vault secrets.
-- It uses certificate-based authentication to Microsoft Entra ID.
-- It enforces least-privilege access so different workloads only receive access to the secrets they need.
+The sample is intentionally practical and easy to follow. It shows how to:
+- expose a simple browser-based UI for secret operations
+- authenticate to Microsoft Entra ID with a PKI certificate
+- read, list, and create secrets in Azure Key Vault
+- apply Azure RBAC at the secret scope so each workload only receives access to the secrets it is meant to use
 
-## What this app does
-The application can:
-- Read a specific secret from Azure Key Vault.
-- List the secrets an identity is permitted to access.
-- Create a new secret and assign reader/writer access at the secret scope.
+## What this application demonstrates
+The app can:
+- read a specific secret from Azure Key Vault
+- list the secrets the current identity is permitted to access
+- create a new secret and assign reader/writer access at the secret scope
 
-It is designed for a scenario where an on-premises host needs to retrieve secrets from Azure Key Vault in a controlled and auditable way.
+This scenario is relevant when an on-premises host, service, or workload needs to retrieve secrets from Azure Key Vault in a controlled and auditable way.
 
 ## Security model
-This solution is based on the following principles:
-- Shared secrets are not allowed for Key Vault access.
-- Authentication must use certificates (or other strong workload identity mechanisms) rather than client secrets or connection strings.
-- At least two service identities are expected:
-  - A reader identity for workloads that only need to read secrets.
-  - A writer identity for workloads that create or manage secrets.
-- Access should be scoped tightly to the secrets each workload needs. In practice, this means applying Azure RBAC or equivalent secret-level access control so each workload can access only the secrets relevant to its purpose.
+This sample is built around the following principles:
+- shared client secrets are not used for Key Vault access
+- authentication uses a certificate-backed workload identity
+- access is scoped to specific secrets rather than granted broadly at the vault level
+- different workloads, environments, and applications can be isolated by giving each identity only the permissions it needs
+
+In practice, that means one service principal or workload identity per application or environment, with RBAC assignments applied only to the secrets it should access.
+
+## Application structure
+The application now follows a lightweight MVC-style separation:
+- [OnPrem-CSharp-WebApp/Program.cs](OnPrem-CSharp-WebApp/Program.cs) wires up configuration and dependency injection
+- [OnPrem-CSharp-WebApp/Controllers](OnPrem-CSharp-WebApp/Controllers) handles request and response flow
+- [OnPrem-CSharp-WebApp/Views](OnPrem-CSharp-WebApp/Views) contains the HTML presentation layer
+- [OnPrem-CSharp-WebApp/Services](OnPrem-CSharp-WebApp/Services) contains the business and Azure integration logic
+
+```mermaid
+flowchart LR
+    User[Browser / API Client] --> Controller[KeyVaultController]
+    Controller --> Service[KeyVaultSecretService]
+    Controller --> Admin[KeyVaultAdminService]
+    Controller --> View[KeyVaultPageView]
+    Service --> KV[Azure Key Vault]
+    Admin --> KV
+    View --> HTML[Rendered HTML Page]
+```
+
+## Azure Key Vault isolation architecture
+The design isolates secrets by giving each workload identity access only to the secrets it needs, rather than granting broad vault-wide access.
+
+
+This diagram illustrates the intent of the sample: each service account or workload identity is granted access only to the secret scope it requires, so secrets remain isolated across applications, environments, and workloads.
 
 ## Repository layout
 ```text
@@ -35,9 +59,16 @@ OnPrem-CSharp-WebApp/
 ├── appsettings.Production.json
 ├── Configuration/
 │   └── KeyVaultOptions.cs
+├── Controllers/
+│   ├── KeyVaultController.cs
+│   └── KeyVaultPageView.cs
 ├── Services/
+│   ├── KeyVaultSecretService.cs
 │   ├── KeyVaultAdminService.cs
-│   └── KeyVaultSecretService.cs
+│   ├── IKeyVaultSecretService.cs
+│   └── IKeyVaultAdminService.cs
+├── Views/
+│   └── key-vault-page.html
 ├── scripts/
 │   ├── rotate-client-certificate.sh
 │   └── rotate-client-certificate.ps1
@@ -45,20 +76,69 @@ OnPrem-CSharp-WebApp/
     └── launchSettings.json
 ```
 
+```mermaid
+graph LR
+    %% Styling for clean directory tree appearance
+    linkStyle default stroke:#bdc3c7,stroke-width:1.5px;
+    classDef default fill:#ffffff,stroke:#bdc3c7,stroke-width:1px,color:#2c3e50;
+    classDef root fill:#2c3e50,stroke:#34495e,stroke-width:2px,color:#ffffff,font-weight:bold;
+    classDef folder fill:#ecf0f1,stroke:#bdc3c7,stroke-width:1px,color:#2c3e50,font-weight:bold;
+
+    %% Root
+    Root[📁 OnPrem-CSharp-WebApp/]:::root
+
+    %% Root Files
+    Root --> Program.cs[📄 Program.cs]
+    Root --> appsettings.json[⚙️ appsettings.json]
+    Root --> appsettings.Dev.json[⚙️ appsettings.Development.json]
+    Root --> appsettings.Test.json[⚙️ appsettings.Test.json]
+    Root --> appsettings.Prod.json[⚙️ appsettings.Production.json]
+    
+    %% Configuration Folder
+    Root --> ConfigDir[📁 Configuration/]:::folder
+    ConfigDir --> KeyVaultOptions.cs[📄 KeyVaultOptions.cs]
+
+    %% Controllers Folder
+    Root --> ControllersDir[📁 Controllers/]:::folder
+    ControllersDir --> KeyVaultController.cs[📄 KeyVaultController.cs]
+    ControllersDir --> KeyVaultPageView.cs[📄 KeyVaultPageView.cs]
+
+    %% Services Folder
+    Root --> ServicesDir[📁 Services/]:::folder
+    ServicesDir --> KeyVaultSecretService.cs[📄 KeyVaultSecretService.cs]
+    ServicesDir --> KeyVaultAdminService.cs[📄 KeyVaultAdminService.cs]
+    ServicesDir --> IKeyVaultSecretService.cs[📄 IKeyVaultSecretService.cs]
+    ServicesDir --> IKeyVaultAdminService.cs[📄 IKeyVaultAdminService.cs]
+
+    %% Views Folder
+    Root --> ViewsDir[📁 Views/]:::folder
+    ViewsDir --> key-vault-page.html[🌐 key-vault-page.html]
+
+    %% Scripts Folder
+    Root --> ScriptsDir[📁 scripts/]:::folder
+    ScriptsDir --> rotate-sh[📜 rotate-client-certificate.sh]
+    ScriptsDir --> rotate-ps1[📜 rotate-client-certificate.ps1]
+
+    %% Properties Folder
+    Root --> PropertiesDir[📁 Properties/]:::folder
+    PropertiesDir --> launchSettings.json[⚙️ launchSettings.json]
+
+```
+
 ## Prerequisites
 - .NET 10 SDK
-- An Azure subscription
-- An Azure Key Vault instance
-- Microsoft Entra ID access to create or configure application registrations / service principals
-- A certificate for client authentication
-- Access to Azure CLI or the Azure portal for role assignment and configuration
+- an Azure subscription
+- permission to create Azure resources and assign RBAC roles
+- a Microsoft Entra tenant and the ability to create or configure application registrations / service principals
+- one PKI certificate for the workload identity that will authenticate to Azure
+- Azure CLI or the Azure portal for provisioning and role assignment
 
 ## Quick start
-1. Build the app:
+1. Build the application:
    ```bash
    dotnet build OnPrem-CSharp-WebApp/OnPrem-CSharp-WebApp.csproj
    ```
-2. Run the app:
+2. Run the application:
    ```bash
    dotnet run --project OnPrem-CSharp-WebApp/OnPrem-CSharp-WebApp.csproj
    ```
@@ -67,13 +147,13 @@ OnPrem-CSharp-WebApp/
    https://localhost:7017/
    ```
 
-The app also exposes these endpoints:
+The application also exposes these endpoints:
 - POST /secrets/read
 - POST /secrets/list-all
 - POST /secrets/create
 
 ## Configuration
-The app reads its settings from appsettings files and environment variables. The most important values are under the AzureKeyVault section:
+The application reads its settings from appsettings files and environment variables. The most important values are under the AzureKeyVault section:
 
 ```json
 {
@@ -89,103 +169,133 @@ The app reads its settings from appsettings files and environment variables. The
     "CertificateStoreName": "My",
     "SecretNames": [
       "MySecretName"
-    ]
+    ],
+    "SubscriptionId": "22222222-2222-2222-2222-222222222222",
+    "VaultResourceId": "/subscriptions/22222222-2222-2222-2222-222222222222/resourceGroups/rg-example/providers/Microsoft.KeyVault/vaults/example-vault"
   }
 }
 ```
 
-## Authentication and identity model
-This sample expects certificate-based authentication to Microsoft Entra ID.
+Set the secret names list to only the secrets this workload should be able to read. Keep this narrow to match the secret scope permissions that will be assigned.
 
-### Required identities
-You should plan for at least two identities:
-- Reader identity: used by workloads that only need to read secrets.
-- Writer identity: used by automation or deployment workflows that create secrets and grant access.
+## Azure setup guide
+The goal is to create a Key Vault that can be used by on-premises applications while ensuring that each workload only has access to the secrets it should use.
 
-These identities should be represented as Entra application registrations or service principals, not as shared client secrets.
+### 1. Create the resource group and Azure Key Vault
+Use Azure CLI to create the vault with Azure RBAC enabled:
 
-### Certificate requirement
-The private key must remain on the trusted on-premises host. The public certificate is uploaded to the Entra application registration so Azure can validate the certificate-based client assertion.
+```bash
+az group create --name rg-onprem-kv-demo --location australiacentral
 
-This sample explicitly assumes that certificate-based authentication is the approved method. Shared secrets are not part of the design.
+az keyvault create \
+  --name <your-unique-vault-name> \
+  --resource-group rg-onprem-kv-demo \
+  --location australiacentral \
+  --enable-rbac-authorization true
+```
 
-## Azure Key Vault access design
-Use Azure RBAC at the secret scope whenever possible. The goal is to give each workload access only to the specific secrets it needs.
+> Use a globally unique vault name. The sample is designed for Azure RBAC rather than legacy access policies.
 
-Recommended pattern:
-- Reader identity gets the Key Vault Secrets User role on only the secrets it needs to read.
-- Writer identity gets the Key Vault Secrets Officer role on the secrets it needs to create or manage.
-- Avoid granting broad vault-level access when a secret-specific assignment is enough.
+### 2. Create or identify the workload identities
+Create one Microsoft Entra application registration and service principal per workload, environment, or application.
 
-The sample includes logic to create a secret and assign roles at the specific secret scope so that reader and writer access can be granted independently.
+For example:
+- App A production reader identity
+- App B integration reader identity
+- App C writer identity
 
-## Setup steps
-### 1. Create the Entra application identities
-Create or identify the reader and writer service principals in Microsoft Entra ID.
+Each identity should be granted only the permissions it needs.
 
-### 2. Upload the public certificates
-Generate or rotate a certificate and upload the public portion to the corresponding Entra application registration.
+### 3. Create a certificate for the workload identity
+Generate a private key and certificate for the workload identity on the on-premises host. The private key remains local; the public certificate is uploaded to the corresponding Entra application registration.
 
-### 3. Enable Azure RBAC on the Key Vault
-Use Azure RBAC instead of legacy access policies where possible.
+Example Linux command:
 
-### 4. Assign secret-scoped permissions
-Grant:
-- Reader identity: Key Vault Secrets User on the target secret(s)
-- Writer identity: Key Vault Secrets Officer on the target secret(s)
-
-This keeps workloads isolated and prevents unnecessary access.
-
-### 5. Configure the app
-Populate the AzureKeyVault section with the vault URI, tenant ID, client ID, and certificate settings.
-
-### 6. Run and use the app
-Once configured, the app can be launched locally and used through the browser UI or by posting to the API endpoints.
-
-## Automation expectations
-All setup and operational workflows should be automated where possible.
-
-This includes:
-- Certificate creation and rotation
-- Certificate upload to Microsoft Entra ID
-- Application configuration provisioning
-- Secret creation and role assignment
-- Secret read workflows for runtime consumption
-
-The repository includes helper scripts for certificate lifecycle management and the app itself supports automated creation and assignment of access for secrets.
-
-## Certificate workflow
-### Linux
 ```bash
 openssl req -x509 -newkey rsa:2048 -nodes \
-  -days 365 \
+  -days 14 \
   -subj "/CN=OnPremKeyVaultApp" \
   -keyout private.pem \
   -out public.crt
 ```
 
-### Windows
-Use the PowerShell helper script to create or rotate a certificate in the Windows certificate store.
+Then upload the public certificate to the Microsoft Entra application registration using the Azure portal or Azure CLI.
+
+### 4. Create the secrets
+You can create secrets in the vault with the CLI, the Azure portal, or through this sample application.
+
+Example:
+
+```bash
+az keyvault secret set \
+  --vault-name <your-unique-vault-name> \
+  --name "app-a/prod/db-password" \
+  --value "replace-with-a-real-value"
+```
+
+Create one secret per workload or environment as needed.
+
+### 5. Assign RBAC roles at the secret scope
+This is the key part of the design. Assign permissions to the secret resource, not to the entire vault, so one workload cannot read secrets that belong to another workload or environment.
+
+Example for a reader identity:
+
+```bash
+VAULT_ID=$(az keyvault show --name <your-unique-vault-name> --resource-group rg-onprem-kv-demo --query id -o tsv)
+SECRET_SCOPE="$VAULT_ID/secrets/app-a/prod/db-password"
+
+az role assignment create \
+  --assignee-object-id <reader-service-principal-object-id> \
+  --role "Key Vault Secrets User" \
+  --scope "$SECRET_SCOPE"
+```
+
+Example for a writer identity:
+
+```bash
+az role assignment create \
+  --assignee-object-id <writer-service-principal-object-id> \
+  --role "Key Vault Secrets Officer" \
+  --scope "$SECRET_SCOPE"
+```
+
+Repeat this pattern for each secret and each workload. A workload that needs access to one secret should not receive access to other secrets unless that is explicitly required.
+
+### 6. Configure the on-premises application
+Populate the AzureKeyVault section in the app settings with:
+- the vault URI
+- the tenant ID
+- the client ID for the workload identity
+- the certificate path or Windows certificate store settings
+- the secret names this workload is allowed to use
+- the subscription ID and vault resource ID used by the create-secret workflow
+
+### 7. Run the sample
+Once configured, launch the app and use the UI or the HTTP endpoints to read or create secrets.
+
+## How the sample uses Azure Key Vault
+The application authenticates to Microsoft Entra ID using the configured certificate, then uses that identity to access Key Vault.
+
+The create workflow is especially relevant for this pattern because it will:
+- create a secret in the vault
+- assign the reader role at the secret scope
+- assign the writer role at the secret scope
+
+That is how this sample illustrates the principle that access can be tightly restricted to specific service accounts and specific secrets.
+
+## Recommended operating model
+For production-like scenarios, prefer this model:
+- one workload identity per application or environment
+- one certificate per workload identity
+- RBAC permissions granted only to the specific secrets required
+- no broad vault-wide access unless there is a strong operational reason
+- automated provisioning of certificates, service principals, and role assignments
 
 ## Helper scripts
 - [OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.sh](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.sh) creates or rotates a certificate on Linux.
 - [OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.ps1](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.ps1) creates or rotates a certificate on Windows.
 
-## How the runtime flow works
-1. The application loads configuration from appsettings files and environment variables.
-2. It resolves the configured certificate source from a file or Windows certificate store.
-3. It creates a client certificate credential for Microsoft Entra ID.
-4. It authenticates to Azure Key Vault using that credential.
-5. It reads or creates secrets according to the requested workflow.
-6. It returns the result through the browser UI or the HTTP endpoints.
-
-## Operational notes
-- The private key stays on the on-premises machine and is never sent to Azure.
-- The public certificate is uploaded to the app registration so Entra ID can validate the identity.
-- Secret-level RBAC is preferred over broad vault-wide access.
-- The design is intended to support automated deployment and runtime operations rather than manual secret handling.
-
 ## Troubleshooting
-- If authentication fails, verify that the public certificate was uploaded to the correct Entra application registration and that the private key matches.
-- If a secret cannot be read, confirm that the reader identity has access to that specific secret.
-- If secret creation fails, confirm that the writer identity has the required role assignment and that the Key Vault and subscription settings are correct.
+- If authentication fails, verify that the public certificate was uploaded to the correct Microsoft Entra application registration and that the private key matches.
+- If a secret cannot be read, confirm that the workload identity has the Key Vault Secrets User role on that specific secret.
+- If secret creation fails, confirm that the writer identity has the required role assignment and that the subscription and vault settings are correct.
