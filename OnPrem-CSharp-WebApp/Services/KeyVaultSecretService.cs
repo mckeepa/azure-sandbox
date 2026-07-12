@@ -12,7 +12,7 @@ namespace OnPrem_CSharp_WebApp.Services;
 /// This is a simple implementation so it can serve as a reference example.
 /// Written by Paul McKee.
 /// </remarks>
-public sealed class KeyVaultSecretService
+public sealed class KeyVaultSecretService : IKeyVaultSecretService
 {
     private readonly KeyVaultOptions _settings;
     private readonly string _contentRootPath;

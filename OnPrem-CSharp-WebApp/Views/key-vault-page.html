@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Azure Key Vault Demo</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2rem; background: #f7f9fc; color: #1f2937; }
+        main { max-width: 900px; margin: 0 auto; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 12px 30px rgba(0,0,0,0.08); }
+        h1, h2 { margin-bottom: 0.25rem; }
+        form { display: grid; gap: 0.75rem; margin-bottom: 1.25rem; padding: 1rem; border: 1px solid #e5e7eb; border-radius: 8px; }
+        .row { display: flex; gap: 1rem; flex-wrap: wrap; }
+        label { font-weight: 600; }
+        input, textarea { padding: 0.6rem; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 1rem; }
+        button { padding: 0.65rem 1rem; border: none; border-radius: 6px; background: #2563eb; color: white; cursor: pointer; }
+        .status { padding: 0.75rem 1rem; background: #eff6ff; border-left: 4px solid #2563eb; border-radius: 6px; }
+        .result { margin-top: 1rem; padding: 1rem; background: #f8fafc; border-radius: 8px; }
+        pre { white-space: pre-wrap; word-break: break-word; }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Azure Key Vault Demo</h1>
+        <p>Read a configured secret or create a new one with scoped access.</p>
+        __STATUS__
+
+        <section>
+            <h2>Read a secret</h2>
+            <form method="post" action="/secrets/read">
+                <label for="secretName">Secret name</label>
+                <input id="secretName" name="secretName" value="__SELECTED_SECRET__" />
+                <div class="row">
+                    <button type="submit">Read selected secret</button>
+                </div>
+            </form>
+            <form method="post" action="/secrets/read">
+                <input type="hidden" name="secretName" value="__SELECTED_SECRET__" />
+                <button type="submit">Read default secret</button>
+            </form>
+        </section>
+
+        <section>
+            <h2>List all accessible secrets</h2>
+            <form method="post" action="/secrets/list-all">
+                <button type="submit">List all accessible secrets</button>
+            </form>
+            __LIST_MARKUP__
+        </section>
+
+        <section>
+            <h2>Create a secret</h2>
+            <form method="post" action="/secrets/create">
+                <label for="createSecretName">Secret name</label>
+                <input id="createSecretName" name="secretName" placeholder="my-new-secret" />
+
+                <label for="createSecretValue">Secret value</label>
+                <textarea id="createSecretValue" name="secretValue" rows="4" placeholder="Secret value"></textarea>
+
+                <label for="readerName">Reader name</label>
+                <input id="readerName" name="readerName" placeholder="user@contoso.com or app display name" />
+
+                <label for="writerName">Writer name</label>
+                <input id="writerName" name="writerName" placeholder="user@contoso.com or app display name" />
+
+                <button type="submit">Create secret</button>
+            </form>
+        </section>
+
+        __RESULT_MARKUP__
+    </main>
+</body>
+</html>

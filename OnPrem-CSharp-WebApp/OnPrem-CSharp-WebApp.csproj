@@ -15,4 +15,10 @@
     <PackageReference Include="Microsoft.Graph" Version="6.2.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="Views/key-vault-page.html">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

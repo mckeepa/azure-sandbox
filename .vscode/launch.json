@@ -16,7 +16,7 @@
       "type": "coreclr",
       "request": "launch",
       "preLaunchTask": "build",
-      "program": "${workspaceFolder}/OnPrem-CSharp-WebApp/bin/Debug/net8.0/OnPrem-CSharp-WebApp.dll",
+      "program": "${workspaceFolder}/OnPrem-CSharp-WebApp/bin/Debug/net10.0/OnPrem-CSharp-WebApp.dll",
       "args": [],
       "cwd": "${workspaceFolder}/OnPrem-CSharp-WebApp",
       "stopAtEntry": false,

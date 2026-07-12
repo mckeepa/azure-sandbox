@@ -14,8 +14,9 @@ using Azure.ResourceManager;
 using Azure.ResourceManager.Authorization;
 using Azure.ResourceManager.Authorization.Models;
 using Microsoft.Graph;
+using OnPrem_CSharp_WebApp.Services;
 
-public class KeyVaultAdminService
+public class KeyVaultAdminService : IKeyVaultAdminService
 {
     private readonly SecretClient _secretClient;
     private readonly ArmClient _armClient;

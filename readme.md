@@ -299,3 +299,37 @@ For production-like scenarios, prefer this model:
 - If authentication fails, verify that the public certificate was uploaded to the correct Microsoft Entra application registration and that the private key matches.
 - If a secret cannot be read, confirm that the workload identity has the Key Vault Secrets User role on that specific secret.
 - If secret creation fails, confirm that the writer identity has the required role assignment and that the subscription and vault settings are correct.
+
+
+==========
+```bash
+cd OnPrem-CSharp-WebApp
+APP_ID=<app-registration-id> TENANT_ID=<tenant-id> ./scripts/rotate-client-certificate.sh
+```
+
+### Windows helper
+The PowerShell script at [OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.ps1](OnPrem-CSharp-WebApp/scripts/rotate-client-certificate.ps1) creates a new self-signed certificate in the Windows certificate store, exports backup files, optionally grants read access to the web application service account, and optionally uploads the new public certificate to the Microsoft Entra application registration.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\rotate-client-certificate.ps1 -StoreLocation CurrentUser -ServiceAccount "NT SERVICE\W3SVC"
+```
+
+## How the runtime flow works
+1. The application loads configuration from appsettings files and environment variables.
+2. The service resolves the configured certificate source.
+3. The certificate is loaded from a file or from the Windows certificate store.
+4. A ClientCertificateCredential is created with the certificate.
+5. The credential is used to authenticate to Microsoft Entra ID.
+6. The resulting identity is used to read secrets from Azure Key Vault.
+7. The application returns the retrieved secret values in JSON.
+
+## Operational notes
+- The private key remains on the on-premises machine and is not sent to Azure.
+- The public certificate is uploaded to the application registration so Microsoft Entra ID can verify the identity.
+- The application uses that identity to access Key Vault.
+- File-based deployments can use PEM or PFX files.
+- Windows store deployments can use the certificate thumbprint and the Windows-protected key store.
+
+## Next steps
+- Add deployment automation for certificate rotation
+- Add environment-specific secret names and certificate thumbprints
